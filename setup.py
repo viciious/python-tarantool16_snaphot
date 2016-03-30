@@ -40,8 +40,7 @@ def download_tarantool_src(path = None):
     src_dir = os.path.join(path,'tarantool_src')
     if not os.path.exists(src_dir):
         sh('git clone https://github.com/tarantool/tarantool.git %s' % src_dir)
-        sh('cd %s && git submodule update --init --recursive && git checkout %s && cd -' % (src_dir, TARANTOOL_REV))
-    sh("cd %s && cmake ." % src_dir)
+        sh('cd %s && git submodule update --init --recursive && git checkout %s && cmake .' % (src_dir, TARANTOOL_REV))
 
     return src_dir
 
