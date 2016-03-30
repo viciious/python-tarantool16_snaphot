@@ -37,7 +37,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#include <sys/uio.h>
 
 #include <crc32.h>
 #include <iproto_constants.h>
@@ -164,7 +163,7 @@ done:
     return self->open_exception;
 }
 
-static int header_decode(struct iovec *row, const char **pos, const char *end)
+static int header_decode(PyObject **dest, const char **pos, const char *end)
 {
     const char *pos2 = *pos;
     if (mp_check(&pos2, end) != 0) {
@@ -208,8 +207,7 @@ error:
     }
     assert(*pos <= end);
     if (*pos < end) {
-        row->iov_base = (void *) *pos;
-        row->iov_len = (end - *pos);
+        *dest = PyString_FromStringAndSize(*pos, end - *pos);
         *pos = end;
         return 0;
     }
@@ -220,7 +218,7 @@ error:
  * @retval 0 success
  * @retval 1 EOF
  */
-static int SnapshotIterator_readrow(SnapshotIterator *self, struct iovec *row)
+static int SnapshotIterator_readrow(SnapshotIterator *self, PyObject **dest)
 {
     const char *data;
     FILE *f = self->f;
@@ -277,7 +275,7 @@ error:
         return 1;
 
     data = bodybuf;
-    if (header_decode(row, &data, bodybuf + len) != 0)
+    if (header_decode(dest, &data, bodybuf + len) != 0)
         return 1;
 
     return 0;
@@ -292,7 +290,7 @@ error:
  * @retval 0    OK
  * @retval 1    EOF
  */
-static int SnapshotIterator_nextrow(SnapshotIterator *self, struct iovec *row)
+static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
 {
     int res = 1;
     FILE *f = self->f;
@@ -311,7 +309,7 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, struct iovec *row)
             ((log_magic_t) c & 0xff) << (sizeof(magic)*8 - 8);
     }
 
-    res = SnapshotIterator_readrow(self, row);
+    res = SnapshotIterator_readrow(self, dest);
     if (res < 0) {
         return res;
     }
@@ -335,9 +333,8 @@ PyObject* SnapshotIterator_iter(SnapshotIterator* self) {
 }
 
 PyObject* SnapshotIterator_iternext(SnapshotIterator* self) {
-    struct iovec row;
-    while (SnapshotIterator_nextrow(self, &row) == 0) {
-        PyObject *s = PyString_FromStringAndSize((char *)row.iov_base, row.iov_len);
+    PyObject *s = NULL;
+    while (SnapshotIterator_nextrow(self, &s) == 0) {
         return s;
     }
     return NULL;
