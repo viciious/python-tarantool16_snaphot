@@ -62,6 +62,7 @@ include_dirs += [
 sources += [
     os.path.join(tarantool_src_dir, 'src', 'box', 'iproto_constants.c'),
     os.path.join(tarantool_src_dir, 'src', 'lib', 'msgpuck', 'msgpuck.c'),
+    os.path.join(tarantool_src_dir, 'src', 'lib', 'msgpuck', 'hints.c'),
 ]
 extra_compile_args += ["-std=c++11"]
 
