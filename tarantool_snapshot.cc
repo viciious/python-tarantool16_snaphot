@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <fcntl.h>
 
 #include <crc32.h>
 #include <iproto_constants.h>
@@ -154,6 +155,9 @@ error:
 done:
     if (self->open_exception) {
         if (f) {
+#if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
+            posix_fadvise(fileno(f), (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
+#endif
             fclose(f);
             f = NULL;
         }
@@ -274,6 +278,10 @@ error:
     if (fread(bodybuf, len, 1, f) != 1)
         return 1;
 
+#if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
+    posix_fadvise(fileno(self->f), (off_t) 0, (off_t)ftell(f), POSIX_FADV_DONTNEED);
+#endif
+
     data = bodybuf;
     if (header_decode(dest, &data, bodybuf + len) != 0)
         return 1;
@@ -341,8 +349,13 @@ PyObject* SnapshotIterator_iternext(SnapshotIterator* self) {
 }
 
 PyObject* SnapshotIterator_del(SnapshotIterator* self) {
-    if (self->f)
+    if (self->f) {
+#if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
+        posix_fadvise(fileno(self->f), (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
+#endif
         fclose(self->f);
+    }
+
     PyObject_Del(self);
     Py_RETURN_NONE;
 }
