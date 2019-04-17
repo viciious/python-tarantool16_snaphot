@@ -42,6 +42,8 @@
 #include <crc32.h>
 #include <iproto_constants.h>
 
+#define FADVD_WINDOW_SIZE ( 10 * 1024 * 1024 )
+
 /*
  * marker is MsgPack fixext2
  * +--------+--------+--------+--------+
@@ -56,6 +58,8 @@ static PyObject *SnapshotError;
 typedef struct {
     PyObject_HEAD
     FILE *f;
+    int fileh;
+    off_t prevfadv;
     char *filename;
     int open_exception;
 } SnapshotIterator;
@@ -122,6 +126,8 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
 
     self->f = NULL;
     self->open_exception = 0;
+    self->prevfadv = 0;
+    self->fileh = -1;
 
     if (!PyArg_ParseTuple(args, "s", &self->filename)) {
         return 1;
@@ -155,15 +161,15 @@ error:
 done:
     if (self->open_exception) {
         if (f) {
-#if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
-            posix_fadvise(fileno(f), (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
-#endif
             fclose(f);
             f = NULL;
         }
     }
 
-    self->f = f;
+    if (f != NULL) {
+        self->f = f;
+        self->fileh = fileno(f);
+    }
     return self->open_exception;
 }
 
@@ -279,7 +285,11 @@ error:
         return 1;
 
 #if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
-    posix_fadvise(fileno(self->f), (off_t) 0, (off_t)ftell(f), POSIX_FADV_DONTNEED);
+    off_t curpos = ftell(f);
+    if (curpos >= self->prevfadv + FADVD_WINDOW_SIZE) {
+        posix_fadvise(self->fileh, self->prevfadv, curpos, POSIX_FADV_DONTNEED);
+        self->prevfadv = curpos;
+    }
 #endif
 
     data = bodybuf;
@@ -351,7 +361,7 @@ PyObject* SnapshotIterator_iternext(SnapshotIterator* self) {
 PyObject* SnapshotIterator_del(SnapshotIterator* self) {
     if (self->f) {
 #if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
-        posix_fadvise(fileno(self->f), (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
+        posix_fadvise(self->fileh, (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
 #endif
         fclose(self->f);
     }
