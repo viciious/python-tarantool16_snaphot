@@ -50,7 +50,7 @@ sources = ["tarantool_snapshot.cc"]
 include_dirs = []
 library_dirs = []
 extra_compile_args = ["-D__STDC_FORMAT_MACROS", "-D__STDC_LIMIT_MACROS"]
-extra_link_args = ["-static-libgcc"]
+extra_link_args = ["-static-libgcc", "-lzstd"]
 
 include_dirs += [
     tarantool_src_dir,

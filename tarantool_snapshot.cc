@@ -33,7 +33,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <inttypes.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -41,6 +40,7 @@
 
 #include <crc32.h>
 #include <iproto_constants.h>
+#include <zstd.h>
 
 #define FADVD_WINDOW_SIZE ( 10 * 1024 * 1024 )
 
@@ -53,7 +53,20 @@
 typedef uint32_t log_magic_t;
 enum { HEADER_LEN_MAX = 40, BODY_LEN_MAX = 128 };
 
+static const log_magic_t row_marker  = mp_bswap_u32(0xd5ba0bab);
+static const log_magic_t zrow_marker = mp_bswap_u32(0xd5ba0bba);
+static const log_magic_t eof_marker  = mp_bswap_u32(0xd510aded);
+
 static PyObject *SnapshotError;
+
+typedef struct {
+    ZSTD_DStream* d_stream;
+    /* use ZSTD_outBuffer as input buffer cause it has non-const void* */
+    ZSTD_outBuffer inbuf;
+    ZSTD_outBuffer outbuf;
+    size_t inbuf_realsize;
+    size_t error;
+} SnapshotZstd;
 
 typedef struct {
     PyObject_HEAD
@@ -62,6 +75,10 @@ typedef struct {
     off_t prevfadv;
     char *filename;
     int open_exception;
+    int version;
+    SnapshotZstd zstd;
+    char *msgp_pos;
+    char *msgp_end;
 } SnapshotIterator;
 
 static PyMethodDef SnapshotIterator_Methods[] = {
@@ -123,11 +140,16 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     char buf[256];
     FILE *f = NULL;
     static const char v12[] = "0.12\n";
+    static const char v13[] = "0.13\n";
+    SnapshotZstd *zstd = &self->zstd;
 
     self->f = NULL;
     self->open_exception = 0;
     self->prevfadv = 0;
     self->fileh = -1;
+    self->version = 0;
+    memset(zstd, 0, sizeof(*zstd));
+    self->msgp_pos = self->msgp_end = NULL;
 
     if (!PyArg_ParseTuple(args, "s", &self->filename)) {
         return 1;
@@ -136,12 +158,45 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     if ((f = fopen(self->filename, "rb")) == NULL) {
         goto error;
     }
+
     if (fgets(filetype, sizeof(filetype), f) == NULL ||
         fgets(version, sizeof(version), f) == NULL) {
         goto error;
     }
-    if (strcmp(v12, version) != 0) {
+
+    if (strcmp(v12, version) == 0) {
+        self->version = 12;
+    } else if (strcmp(v13, version) == 0) {
+        self->version = 13;
+    } else {
         goto error;
+    }
+
+    if (self->version == 12) {
+        zstd->inbuf_realsize = 0;
+        zstd->inbuf.size = zstd->inbuf.pos = zstd->inbuf_realsize;
+    } else if (self->version == 13) {
+        zstd->d_stream = ZSTD_createDStream();
+        if (!zstd->d_stream) {
+            goto error;
+        }
+
+        zstd->error = ZSTD_initDStream(zstd->d_stream);
+        if (ZSTD_isError(zstd->error)) {
+            goto error;
+        }
+
+        zstd->inbuf_realsize = ZSTD_DStreamInSize();
+        zstd->inbuf.size = zstd->inbuf.pos = zstd->inbuf_realsize;
+
+        zstd->outbuf.size = ZSTD_DStreamOutSize();
+        zstd->outbuf.pos = 0;
+
+        zstd->inbuf.dst = (uint8_t*)malloc(zstd->inbuf_realsize);
+        zstd->outbuf.dst = (uint8_t*)malloc(zstd->outbuf.size);
+        if (!zstd->inbuf.dst || !zstd->outbuf.dst) {
+            goto error;
+        }
     }
 
     for (;;) {
@@ -191,6 +246,7 @@ error:
         unsigned char key = mp_decode_uint(pos);
         if (iproto_key_type[key] != mp_typeof(**pos))
             goto error;
+
         switch (key) {
         case IPROTO_REQUEST_TYPE:
             mp_decode_uint(pos);
@@ -215,23 +271,35 @@ error:
             mp_next(pos);
         }
     }
+
+    if (mp_typeof(**pos) != MP_MAP)
+        goto error;
+
+    const char *begin = *pos;
+    mp_next(pos);
+
     assert(*pos <= end);
-    if (*pos < end) {
-        *dest = PyString_FromStringAndSize(*pos, end - *pos);
-        *pos = end;
-        return 0;
+    if (*pos > end) {
+        return 1;
     }
-    return 1;
+
+    end = *pos;
+    *pos = begin;
+
+    *dest = PyString_FromStringAndSize(*pos, end - *pos);
+    *pos = end;
+    return 0;
 }
 
 /**
  * @retval 0 success
  * @retval 1 EOF
  */
-static int SnapshotIterator_readrow(SnapshotIterator *self, PyObject **dest)
+static int SnapshotIterator_readrow(SnapshotIterator *self, PyObject **dest, char compressed)
 {
     const char *data;
     FILE *f = self->f;
+    SnapshotZstd *zstd = &self->zstd;
 
     /* Read fixed header */
     char fixheader[XLOG_FIXHEADER_SIZE - sizeof(log_magic_t)];
@@ -277,12 +345,36 @@ error:
     (void) crc32p;
     (void) crc32c;
 
-    /* Allocate memory for body */
-    char *bodybuf = (char *)alloca(len);
+    if (len > zstd->inbuf_realsize) {
+        free(zstd->inbuf.dst);
+        zstd->inbuf_realsize = 0;
 
-    /* Read header and body */
-    if (fread(bodybuf, len, 1, f) != 1)
+        zstd->inbuf.dst = malloc(len);
+        if (!zstd->inbuf.dst) {
+            return 1;
+        }
+        zstd->inbuf_realsize = len;
+    }
+
+    if (compressed) {
+        if (len < 4) {
+            return 1;
+        }
+
+        zstd->inbuf.pos = 0;
+        zstd->inbuf.size = len;
+    } else {
+        zstd->inbuf.pos = len;
+        zstd->inbuf.size = len;
+
+        zstd->outbuf.pos = len;
+        zstd->outbuf.size = len;
+        zstd->outbuf.dst = zstd->inbuf.dst;
+    }
+
+    if (fread(zstd->inbuf.dst, len, 1, f) != 1) {
         return 1;
+    }
 
 #if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
     off_t curpos = ftell(f);
@@ -291,10 +383,6 @@ error:
         self->prevfadv = curpos;
     }
 #endif
-
-    data = bodybuf;
-    if (header_decode(dest, &data, bodybuf + len) != 0)
-        return 1;
 
     return 0;
 }
@@ -313,12 +401,31 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
     int res = 1;
     FILE *f = self->f;
     log_magic_t magic;
-    static const log_magic_t row_marker = mp_bswap_u32(0xd5ba0bab); /* host byte order */
+    char compressed = 0;
+    SnapshotZstd *zstd = &self->zstd;
+
+    if (self->msgp_pos < self->msgp_end) {
+        goto decode_row;
+    }
+    if (zstd->inbuf.pos < zstd->inbuf.size) {
+        goto decompress_row;
+    }
 
     if (fread(&magic, sizeof(magic), 1, f) != 1)
         goto eof;
 
-    while (magic != row_marker) {
+    while (1) {
+        if (magic == eof_marker) {
+            goto eof;
+        }
+        if (magic == row_marker) {
+            break;
+        }
+        if (self->version == 13 && magic == zrow_marker) {
+            compressed = 1;
+            break;
+        }
+
         int c = fgetc(f);
         if (c == EOF) {
             goto eof;
@@ -327,12 +434,35 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
             ((log_magic_t) c & 0xff) << (sizeof(magic)*8 - 8);
     }
 
-    res = SnapshotIterator_readrow(self, dest);
+    res = SnapshotIterator_readrow(self, dest, compressed);
     if (res < 0) {
         return res;
     }
     if (res != 0) {
         goto eof;
+    }
+
+decompress_row:
+    if (zstd->inbuf.pos < zstd->inbuf.size) {
+        zstd->outbuf.pos = 0;
+        zstd->error = ZSTD_decompressStream(zstd->d_stream, &zstd->outbuf, (ZSTD_inBuffer*)&zstd->inbuf);
+        if (ZSTD_isError(zstd->error)) {
+            return 1;
+        }
+    }
+
+    self->msgp_pos = (char*)zstd->outbuf.dst;
+    self->msgp_end = self->msgp_pos + zstd->outbuf.pos;
+
+decode_row:
+    assert(self->msgp_pos < self->msgp_end);
+
+    if (self->msgp_pos < self->msgp_end) {
+       const char *data = self->msgp_pos;
+       if (header_decode(dest, &data, self->msgp_end) != 0)
+            return 1;
+       self->msgp_pos = (char *)data;
+       return 0;
     }
 
     return 0;
@@ -359,11 +489,26 @@ PyObject* SnapshotIterator_iternext(SnapshotIterator* self) {
 }
 
 PyObject* SnapshotIterator_del(SnapshotIterator* self) {
+    SnapshotZstd *zstd = &self->zstd;
+
     if (self->f) {
 #if ( _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L )
         posix_fadvise(self->fileh, (off_t) 0, (off_t) 0, POSIX_FADV_DONTNEED);
 #endif
         fclose(self->f);
+    }
+
+    if (self->version == 13) {
+        if (zstd->d_stream) {
+            ZSTD_freeDStream(zstd->d_stream);
+        }
+        if (zstd->outbuf.dst) {
+            free(zstd->outbuf.dst);
+        }
+    }
+
+    if (zstd->inbuf.dst) {
+        free(zstd->inbuf.dst);
     }
 
     PyObject_Del(self);
