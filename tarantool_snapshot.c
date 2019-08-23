@@ -38,8 +38,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 
-#include <crc32.h>
-#include <iproto_constants.h>
+#include <msgpuck.h>
 #include <zstd.h>
 
 #define FADVD_WINDOW_SIZE ( 10 * 1024 * 1024 )
@@ -52,6 +51,16 @@
  */
 typedef uint32_t log_magic_t;
 enum { HEADER_LEN_MAX = 40, BODY_LEN_MAX = 128 };
+
+
+enum {
+    /** Maximal iproto package body length (2GiB) */
+    IPROTO_BODY_LEN_MAX = 2147483648UL,
+    /* Maximal length of text handshake (greeting) */
+    IPROTO_GREETING_SIZE = 128,
+    /** marker + len + prev crc32 + cur crc32 + (padding) */
+    XLOG_FIXHEADER_SIZE = 19
+};
 
 static const log_magic_t row_marker  = mp_bswap_u32(0xd5ba0bab);
 static const log_magic_t zrow_marker = mp_bswap_u32(0xd5ba0bba);
@@ -93,7 +102,7 @@ PyObject* SnapshotIterator_iternext(SnapshotIterator *self);
 static PyTypeObject SnapshotIterator_Type = {
     PyObject_HEAD_INIT(NULL)
     0,                         /*ob_size*/
-    "tarantool16_snapshot.SnapshotIterator",      /*tp_name*/
+    "tarantool17_snapshot.SnapshotIterator",      /*tp_name*/
     sizeof(SnapshotIterator),      /*tp_basicsize*/
     0,                         /*tp_itemsize*/
     (destructor)SnapshotIterator_del,             /*tp_dealloc*/
@@ -230,52 +239,22 @@ done:
 
 static int header_decode(PyObject **dest, const char **pos, const char *end)
 {
-    const char *pos2 = *pos;
-    if (mp_check(&pos2, end) != 0) {
+    const char *meta_pos = *pos;
+
+    if (mp_typeof(**pos) != MP_MAP) {
 error:
         return -1;
     }
 
-    if (mp_typeof(**pos) != MP_MAP)
+    mp_next(pos);
+
+    if (mp_typeof(**pos) != MP_MAP) {
         goto error;
-
-    uint32_t size = mp_decode_map(pos);
-    for (uint32_t i = 0; i < size; i++) {
-        if (mp_typeof(**pos) != MP_UINT)
-            goto error;
-        unsigned char key = mp_decode_uint(pos);
-        if (iproto_key_type[key] != mp_typeof(**pos))
-            goto error;
-
-        switch (key) {
-        case IPROTO_REQUEST_TYPE:
-            mp_decode_uint(pos);
-            break;
-        case IPROTO_SYNC:
-            mp_decode_uint(pos);
-            break;
-        case IPROTO_SERVER_ID:
-            mp_decode_uint(pos);
-            break;
-        case IPROTO_LSN:
-            mp_decode_uint(pos);
-            break;
-        case IPROTO_TIMESTAMP:
-            mp_decode_double(pos);
-            break;
-        case IPROTO_SCHEMA_ID:
-            mp_decode_uint(pos);
-            break;
-        default:
-            /* unknown header */
-            mp_next(pos);
-        }
     }
 
-    if (mp_typeof(**pos) != MP_MAP)
-        goto error;
+    const char *meta_end = *pos;
+    const char *row_pos = *pos;
 
-    const char *begin = *pos;
     mp_next(pos);
 
     assert(*pos <= end);
@@ -283,11 +262,10 @@ error:
         return 1;
     }
 
-    end = *pos;
-    *pos = begin;
+    const char *row_end = *pos;
 
-    *dest = PyString_FromStringAndSize(*pos, end - *pos);
-    *pos = end;
+    *dest = Py_BuildValue("(s#,s#)", meta_pos,  meta_end - meta_pos, row_pos, row_end - row_pos);
+
     return 0;
 }
 
@@ -304,10 +282,10 @@ static int SnapshotIterator_readrow(SnapshotIterator *self, PyObject **dest, cha
     /* Read fixed header */
     char fixheader[XLOG_FIXHEADER_SIZE - sizeof(log_magic_t)];
     if (fread(fixheader, sizeof(fixheader), 1, f) != 1) {
+        char buf[PATH_MAX];
         if (feof(f))
             return 1;
 error:
-        char buf[PATH_MAX];
         snprintf(buf, sizeof(buf), "%s: failed to read or parse row header"
              " at offset %" PRIu64, self->filename,
              (uint64_t) ftello(f));
@@ -519,13 +497,13 @@ static PyMethodDef TarantoolSnapshot_Module_Methods[] = {
     {NULL}  /* Sentinel */
 };
 
-PyMODINIT_FUNC inittarantool16_snapshot(void) {
+PyMODINIT_FUNC inittarantool17_snapshot(void) {
     PyObject *m;
 
     SnapshotIterator_Type.tp_new = PyType_GenericNew;
     if (PyType_Ready(&SnapshotIterator_Type) < 0)  return;
 
-    m = Py_InitModule("tarantool16_snapshot", TarantoolSnapshot_Module_Methods);
+    m = Py_InitModule("tarantool17_snapshot", TarantoolSnapshot_Module_Methods);
     if (!m) {
         return;
     }
@@ -533,7 +511,7 @@ PyMODINIT_FUNC inittarantool16_snapshot(void) {
     Py_INCREF(&SnapshotIterator_Type);
     PyModule_AddObject(m, "iter", (PyObject *)&SnapshotIterator_Type);
 
-    SnapshotError = PyErr_NewException((char *)"tarantool16_snapshot.SnapshotError", (PyObject *)NULL, (PyObject *)NULL);
+    SnapshotError = PyErr_NewException((char *)"tarantool17_snapshot.SnapshotError", (PyObject *)NULL, (PyObject *)NULL);
     Py_INCREF(SnapshotError);
     PyModule_AddObject(m, "SnapshotError", SnapshotError); 
 }
@@ -541,6 +519,6 @@ PyMODINIT_FUNC inittarantool16_snapshot(void) {
 int main(int argc, char **argv) {
     Py_SetProgramName(argv[0]);
     Py_Initialize();
-    inittarantool16_snapshot();
+    inittarantool17_snapshot();
     return 0;
 }
