@@ -1,0 +1,15 @@
+dist: bionic
+language: c
+
+addons:
+    apt:
+        packages: &default_packages
+            - python2.7
+            - python2.7-dev
+            - python-msgpack
+            - build-essential
+            - libzstd-dev
+
+script:
+  - make
+  - make test
