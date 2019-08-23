@@ -74,8 +74,8 @@ module1 = Extension('tarantool16_snapshot',
                     extra_compile_args = extra_compile_args)
 
 setup (name = 'python-tarantool16-snapshot',
-    description = 'Tarantool 1.6 snapshot reader',
-    version='1.2',
+    description = 'Tarantool 1.6+ snapshot reader',
+    version='1.3',
     author='Victor Luchits',
     author_email='vluchits@gmail.com',
     url='https://github.com/viciious/python-tarantool16_snaphot',
