@@ -14,9 +14,22 @@ import tarantool17_snapshot as tarantool_snapshot
 import msgpack
 
 count = 0
-for _, row_data in tarantool_snapshot.iter("/snaps/00000000010388786179.snap"):
-  row = msgpack.unpackb(row_data)
+for packed_meta, packed_row in tarantool_snapshot.iter("/snaps/00000000010388786179.snap"):
+  meta = msgpack.unpackb(packed_meta)
+  row = msgpack.unpackb(packed_row)
   count += 1
+  
+  print("type is %s" % meta[0])
+
+  if 3 in meta:
+    print("lsn is %s" % meta[3])
+  if 4 in meta:
+    print("timestamp is %s" % meta[4])
+    
+  if 16 in row:
+    print("space id is %s" % row[16])
+  if 33 in row:
+    print("tuple is %s" % row[33])
 
 print count
 
