@@ -28,8 +28,6 @@ def sh(command):
         raise ValueError("command failed: %s" % command)
     return ret
 
-sh('git submodule update --init --recursive')
-
 sources = ["tarantool_snapshot.c"]
 include_dirs = []
 library_dirs = []
