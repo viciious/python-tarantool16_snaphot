@@ -1,3 +1,7 @@
+# python-tarantool16_snapshot
+
+[![Build Status](https://travis-ci.org/viciious/python-tarantool16_snaphot.svg?branch=v13_snapshots)](https://travis-ci.org/viciious/python-tarantool16_snaphot)
+
 ## Description
 
 [Tarantool](https://github.com/tarantool/tarantool) 1.6+ snapshot reader.
