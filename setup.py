@@ -2,7 +2,7 @@ import os
 import sys
 from setuptools.command.bdist_rpm import bdist_rpm
 
-RPM_REQUIRED_DEPS = "python-msgpack"
+RPM_REQUIRED_DEPS = "python-msgpack, libzstd"
 
 ## HACK FOR DEPS IN RPMS
 def custom_make_spec_file(self):
