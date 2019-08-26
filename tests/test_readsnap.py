@@ -38,3 +38,27 @@ class TestSnapshot(TestCase):
         self.assertEquals(fixtures.v13_metas, metas)
         self.assertEquals(fixtures.v13_rows, rows)
 
+    def test_corrupted_zstd_v13(self):
+        with self.assertRaises(tarantool17_snapshot.SnapshotError) as ctx:
+            for _, _ in tarantool17_snapshot.iter("testdata/v13/corr.block.snap"):
+                pass
+        self.assertEquals(str(ctx.exception), "Error reading 'testdata/v13/corr.block.snap': zstd error: Corrupted block detected")
+
+    def test_no_eof_v13(self):
+        with self.assertRaises(tarantool17_snapshot.SnapshotError) as ctx:
+            for _, _ in tarantool17_snapshot.iter("testdata/v13/no.eof.snap"):
+                pass
+        self.assertEquals(str(ctx.exception), "Error reading 'testdata/v13/no.eof.snap': truncated stream")
+
+    def test_bad_version_xlog(self):
+        with self.assertRaises(tarantool17_snapshot.SnapshotError) as ctx:
+            for _, _ in tarantool17_snapshot.iter("testdata/version.bad.xlog"):
+                pass
+        self.assertEquals(str(ctx.exception), "Error opening 'testdata/version.bad.xlog': unknown header version: 0.07\n")
+
+    def test_bad_format(self):
+        with self.assertRaises(tarantool17_snapshot.SnapshotError) as ctx:
+            for _, _ in tarantool17_snapshot.iter("testdata/format.bad.xlog"):
+                pass
+        self.assertEquals(str(ctx.exception), "Error opening 'testdata/format.bad.xlog': unknown file header: expected SNAP or XLOG")
+
