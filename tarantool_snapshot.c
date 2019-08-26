@@ -310,9 +310,6 @@ error:
 
     /* Decode len, previous crc32 and row crc32 */
     data = fixheader;
-    if (mp_check(&data, data + sizeof(fixheader)) != 0)
-        goto error;
-    data = fixheader;
 
     /* Read length */
     if (mp_typeof(*data) != MP_UINT)
