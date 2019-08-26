@@ -6,6 +6,12 @@ default:
 install:
 	$(PYTHON) setup.py install
 
+bdist:
+	$(PYTHON) setup.py bdist
+
+bdist_rpm:
+	$(PYTHON) setup.py bdist_rpm
+
 test:
 	$(PYTHON) setup.py test
 
