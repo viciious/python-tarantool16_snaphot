@@ -11,5 +11,5 @@ addons:
             - libzstd-dev
 
 script:
-  - make
   - make test
+
