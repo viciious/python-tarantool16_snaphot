@@ -88,6 +88,7 @@ typedef struct {
     SnapshotZstd zstd;
     char *msgp_pos;
     char *msgp_end;
+    char error_buf[256];
 } SnapshotIterator;
 
 static PyMethodDef SnapshotIterator_Methods[] = {
@@ -157,6 +158,7 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     self->prevfadv = 0;
     self->fileh = -1;
     self->version = 0;
+    self->error_buf[0] = 0;
     memset(zstd, 0, sizeof(*zstd));
     self->msgp_pos = self->msgp_end = NULL;
 
@@ -165,11 +167,18 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     }
 
     if ((f = fopen(self->filename, "rb")) == NULL) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "can't open for reading");
         goto error;
     }
 
     if (fgets(filetype, sizeof(filetype), f) == NULL ||
         fgets(version, sizeof(version), f) == NULL) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "error reading file header");
+        goto error;
+    }
+
+    if (strncmp(filetype, "SNAP", 4) && strncmp(filetype, "XLOG", 4)) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "unknown file header: expected SNAP or XLOG");
         goto error;
     }
 
@@ -178,6 +187,7 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     } else if (strcmp(v13, version) == 0) {
         self->version = 13;
     } else {
+        snprintf(self->error_buf, sizeof(self->error_buf), "unknown header version: %s", version);
         goto error;
     }
 
@@ -187,11 +197,13 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     } else if (self->version == 13) {
         zstd->d_stream = ZSTD_createDStream();
         if (!zstd->d_stream) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "can't create zstd stream");
             goto error;
         }
 
         zstd->error = ZSTD_initDStream(zstd->d_stream);
         if (ZSTD_isError(zstd->error)) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "zstd error: %s", ZSTD_getErrorName(zstd->error));
             goto error;
         }
 
@@ -204,12 +216,14 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
         zstd->inbuf.dst = (uint8_t*)malloc(zstd->inbuf_realsize);
         zstd->outbuf.dst = (uint8_t*)malloc(zstd->outbuf.size);
         if (!zstd->inbuf.dst || !zstd->outbuf.dst) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "out of memory");
             goto error;
         }
     }
 
     for (;;) {
         if (fgets(buf, sizeof(buf), f) == NULL) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "can't read header line");
             goto error;
         }
         /** Empty line indicates the end of file header. */
@@ -237,12 +251,13 @@ done:
     return self->open_exception;
 }
 
-static int header_decode(PyObject **dest, const char **pos, const char *end)
+static int header_decode(SnapshotIterator *self, PyObject **dest, const char **pos, const char *end)
 {
     const char *meta_pos = *pos;
 
     if (mp_typeof(**pos) != MP_MAP) {
 error:
+        snprintf(self->error_buf, sizeof(self->error_buf), "expected msgpack map, got something else");
         return -1;
     }
 
@@ -259,6 +274,7 @@ error:
 
     assert(*pos <= end);
     if (*pos > end) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "msgpack buffer overrun");
         return 1;
     }
 
@@ -282,13 +298,13 @@ static int SnapshotIterator_readrow(SnapshotIterator *self, PyObject **dest, cha
     /* Read fixed header */
     char fixheader[XLOG_FIXHEADER_SIZE - sizeof(log_magic_t)];
     if (fread(fixheader, sizeof(fixheader), 1, f) != 1) {
-        char buf[PATH_MAX];
-        if (feof(f))
+        if (feof(f)) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "truncated stream");
             return 1;
+        }
 error:
-        snprintf(buf, sizeof(buf), "%s: failed to read or parse row header"
-             " at offset %" PRIu64, self->filename,
-             (uint64_t) ftello(f));
+        snprintf(self->error_buf, sizeof(self->error_buf), "failed to read or parse row header"
+             " at offset %" PRIu64, (uint64_t) ftello(f));
         return -1;
     }
 
@@ -303,10 +319,9 @@ error:
         goto error;
     uint32_t len = mp_decode_uint(&data);
     if (len > IPROTO_BODY_LEN_MAX) {
-        char buf[PATH_MAX];
-        snprintf(buf, sizeof(buf),
-             "%s: row is too big at offset %" PRIu64,
-             self->filename, (uint64_t) ftello(f));
+        snprintf(self->error_buf, sizeof(self->error_buf),
+             "row is too big at offset %" PRIu64,
+             (uint64_t) ftello(f));
         return -1;
     }
 
@@ -329,6 +344,7 @@ error:
 
         zstd->inbuf.dst = malloc(len);
         if (!zstd->inbuf.dst) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "out of memory");
             return 1;
         }
         zstd->inbuf_realsize = len;
@@ -336,6 +352,7 @@ error:
 
     if (compressed) {
         if (len < 4) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "truncated compressed row header");
             return 1;
         }
 
@@ -351,6 +368,7 @@ error:
     }
 
     if (fread(zstd->inbuf.dst, len, 1, f) != 1) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "truncated row");
         return 1;
     }
 
@@ -376,7 +394,7 @@ error:
  */
 static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
 {
-    int res = 1;
+    int res = -1;
     FILE *f = self->f;
     log_magic_t magic;
     char compressed = 0;
@@ -389,12 +407,14 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
         goto decompress_row;
     }
 
-    if (fread(&magic, sizeof(magic), 1, f) != 1)
-        goto eof;
+    if (fread(&magic, sizeof(magic), 1, f) != 1) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "truncated stream");
+        return -1;
+    }
 
     while (1) {
         if (magic == eof_marker) {
-            goto eof;
+            return 1;
         }
         if (magic == row_marker) {
             break;
@@ -406,7 +426,8 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
 
         int c = fgetc(f);
         if (c == EOF) {
-            goto eof;
+            snprintf(self->error_buf, sizeof(self->error_buf), "truncated stream");
+            return -1;
         }
         magic = magic >> 8 |
             ((log_magic_t) c & 0xff) << (sizeof(magic)*8 - 8);
@@ -417,7 +438,7 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
         return res;
     }
     if (res != 0) {
-        goto eof;
+        return -res;
     }
 
 decompress_row:
@@ -425,7 +446,8 @@ decompress_row:
         zstd->outbuf.pos = 0;
         zstd->error = ZSTD_decompressStream(zstd->d_stream, &zstd->outbuf, (ZSTD_inBuffer*)&zstd->inbuf);
         if (ZSTD_isError(zstd->error)) {
-            return 1;
+            snprintf(self->error_buf, sizeof(self->error_buf), "zstd error: %s", ZSTD_getErrorName(zstd->error));
+            return -1;
         }
     }
 
@@ -437,21 +459,18 @@ decode_row:
 
     if (self->msgp_pos < self->msgp_end) {
        const char *data = self->msgp_pos;
-       if (header_decode(dest, &data, self->msgp_end) != 0)
-            return 1;
+       if (header_decode(self, dest, &data, self->msgp_end) != 0)
+            return -1;
        self->msgp_pos = (char *)data;
        return 0;
     }
 
-    return 0;
-
-eof:
-    return 1;
+    return -1;
 }
 
 PyObject* SnapshotIterator_iter(SnapshotIterator* self) {
     if (self->open_exception) {
-        PyErr_Format(SnapshotError, "Can't open snapshot");
+        PyErr_Format(SnapshotError, "Error opening '%s': %s", self->filename, self->error_buf);
         return NULL;
     }
     Py_INCREF(self);
@@ -460,9 +479,17 @@ PyObject* SnapshotIterator_iter(SnapshotIterator* self) {
 
 PyObject* SnapshotIterator_iternext(SnapshotIterator* self) {
     PyObject *s = NULL;
-    while (SnapshotIterator_nextrow(self, &s) == 0) {
+
+    int res = SnapshotIterator_nextrow(self, &s);
+    if (res == 0) {
         return s;
     }
+    if (res == 1) {
+        // EOF
+        return NULL;
+    }
+
+    PyErr_Format(SnapshotError, "Error reading '%s': %s", self->filename, self->error_buf);
     return NULL;
 }
 
@@ -480,7 +507,7 @@ PyObject* SnapshotIterator_del(SnapshotIterator* self) {
         if (zstd->d_stream) {
             ZSTD_freeDStream(zstd->d_stream);
         }
-        if (zstd->outbuf.dst) {
+        if (zstd->outbuf.dst && zstd->outbuf.dst != zstd->inbuf.dst) {
             free(zstd->outbuf.dst);
         }
     }
