@@ -1,8 +1,9 @@
 import os
 import sys
+import glob
 from setuptools.command.bdist_rpm import bdist_rpm
 
-RPM_REQUIRED_DEPS = "python-msgpack, libzstd"
+RPM_REQUIRED_DEPS = "python-msgpack"
 
 ## HACK FOR DEPS IN RPMS
 def custom_make_spec_file(self):
@@ -32,15 +33,19 @@ sources = ["tarantool_snapshot.c"]
 include_dirs = []
 library_dirs = []
 extra_compile_args = ["-D__STDC_FORMAT_MACROS", "-D__STDC_LIMIT_MACROS"]
-extra_link_args = ["-static-libgcc", "-lzstd"]
+extra_link_args = ["-static-libgcc"]
 
 include_dirs += [
     os.path.join("msgpuck"),
+    os.path.join("zstd/lib"),
+    os.path.join("zstd/lib/common"),
 ]
 sources += [
     os.path.join("msgpuck", "msgpuck.c"),
     os.path.join("msgpuck", "hints.c"),
 ]
+sources += glob.glob("zstd/lib/common/*.c")
+sources += glob.glob("zstd/lib/decompress/*.c")
 extra_compile_args += ["-std=c99"]
 
 module1 = Extension('tarantool17_snapshot',
