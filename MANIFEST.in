@@ -1,2 +1,5 @@
 recursive-include msgpuck *
+recursive-include zstd/lib/common *
+recursive-include zstd/lib/decompress *
+include zstd/lib/zstd.h
 
