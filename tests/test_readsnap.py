@@ -38,6 +38,19 @@ class TestSnapshot(TestCase):
         self.assertEquals(fixtures.v13_metas, metas)
         self.assertEquals(fixtures.v13_rows, rows)
 
+    def test_bigsnap_v13(self):
+        count = 0
+        try:
+            for meta_data, row_data in tarantool17_snapshot.iter("testdata/v13/00000000000000010005.ok.snap"):
+                msgpack.unpackb(meta_data)
+                msgpack.unpackb(row_data)
+
+                count = count + 1
+        except:
+            self.fail("Reading v13 snapshot failed")
+
+        self.assertEquals(count, 10511)
+
     def test_corrupted_zstd_v13(self):
         with self.assertRaises(tarantool17_snapshot.SnapshotError) as ctx:
             for _, _ in tarantool17_snapshot.iter("testdata/v13/corr.block.snap"):
