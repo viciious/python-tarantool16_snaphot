@@ -274,6 +274,7 @@ error:
 
     assert(*pos <= end);
     if (*pos > end) {
+        *pos = end;
         snprintf(self->error_buf, sizeof(self->error_buf), "msgpack buffer overrun");
         return 1;
     }
@@ -441,11 +442,26 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
 decompress_row:
     if (zstd->inbuf.pos < zstd->inbuf.size) {
         zstd->outbuf.pos = 0;
-        zstd->error = ZSTD_decompressStream(zstd->d_stream, &zstd->outbuf, (ZSTD_inBuffer*)&zstd->inbuf);
-        if (ZSTD_isError(zstd->error)) {
-            snprintf(self->error_buf, sizeof(self->error_buf), "zstd error: %s", ZSTD_getErrorName(zstd->error));
-            return -1;
-        }
+
+        do {
+            zstd->error = ZSTD_decompressStream(zstd->d_stream, &zstd->outbuf, (ZSTD_inBuffer*)&zstd->inbuf);
+            if (ZSTD_isError(zstd->error)) {
+                snprintf(self->error_buf, sizeof(self->error_buf), "zstd error: %s", ZSTD_getErrorName(zstd->error));
+                return -1;
+            }
+
+            if (zstd->outbuf.pos < zstd->outbuf.size) {
+                break;
+            }
+
+            zstd->outbuf.size *= 2;
+            void *newdst = realloc(zstd->outbuf.dst, zstd->outbuf.size);
+            if (!newdst) {
+                snprintf(self->error_buf, sizeof(self->error_buf), "out of memory");
+                return -1;
+            }
+            zstd->outbuf.dst = newdst; 
+        } while (1);
     }
 
     self->msgp_pos = (char*)zstd->outbuf.dst;
