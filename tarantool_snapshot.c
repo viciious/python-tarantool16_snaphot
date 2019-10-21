@@ -95,7 +95,7 @@ static PyMethodDef SnapshotIterator_Methods[] = {
     {NULL}  /* Sentinel */
 };
 
-static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args);
+static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObject *kw);
 PyObject* SnapshotIterator_del(SnapshotIterator *self);
 PyObject* SnapshotIterator_iter(SnapshotIterator *self);
 PyObject* SnapshotIterator_iternext(SnapshotIterator *self);
@@ -145,13 +145,15 @@ static PyTypeObject SnapshotIterator_Type = {
     0                          /* tp_alloc */
 };
 
-static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
+static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObject *kw) {
     char filetype[32], version[32];
     char buf[256];
     FILE *f = NULL;
     static const char v12[] = "0.12\n";
     static const char v13[] = "0.13\n";
+    static char *keywords[] = {"filename", "header", NULL};
     SnapshotZstd *zstd = &self->zstd;
+    PyObject *header_dict = NULL;
 
     self->f = NULL;
     self->open_exception = 0;
@@ -162,7 +164,7 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
     memset(zstd, 0, sizeof(*zstd));
     self->msgp_pos = self->msgp_end = NULL;
 
-    if (!PyArg_ParseTuple(args, "s", &self->filename)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "s|O!", keywords, &self->filename, &PyDict_Type, &header_dict)) {
         return 1;
     }
 
@@ -226,10 +228,31 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args) {
             snprintf(self->error_buf, sizeof(self->error_buf), "can't read header line");
             goto error;
         }
+
         /** Empty line indicates the end of file header. */
         if (strcmp(buf, "\n") == 0)
             break;
-        /* Skip header */
+
+        if (header_dict == NULL)
+            continue;
+
+        /* Parse the Key: Value pair */
+
+        const char *key = buf;
+        char *key_end = strchr(buf, ':');
+        if (key_end == NULL)
+            continue;
+        *key_end = '\0';
+
+        const char *val = key_end + 1;
+        while (*val == ' ' || *val == '\t')
+            val++;
+        char *val_end = strchr(val, '\n');
+        *val_end = '\0';
+
+        PyObject *pyval = PyString_FromString(val);
+        PyDict_SetItemString(header_dict, key, pyval);
+        Py_DECREF(pyval);
     }
 
     goto done;
@@ -403,6 +426,11 @@ static int SnapshotIterator_nextrow(SnapshotIterator *self, PyObject **dest)
     }
     if (zstd->inbuf.pos < zstd->inbuf.size) {
         goto decompress_row;
+    }
+
+    if (f == NULL) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "invalid stream");
+        return -1;
     }
 
     if (fread(&magic, sizeof(magic), 1, f) != 1) {

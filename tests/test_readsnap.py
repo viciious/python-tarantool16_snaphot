@@ -21,6 +21,16 @@ class TestSnapshot(TestCase):
         self.assertEquals(fixtures.v12_metas, metas)
         self.assertEquals(fixtures.v12_rows, rows)
 
+    def test_read_v12_header(self):
+        header = {}
+
+        try:
+            tarantool17_snapshot.iter("testdata/v12/00000000000000000000.ok.snap", header=header)
+        except:
+            self.fail("Reading v12 snapshot header failed")
+
+        self.assertEquals(fixtures.v12_header, header)
+
     def test_read_v13(self):
         metas = []
         rows = []
@@ -37,6 +47,16 @@ class TestSnapshot(TestCase):
 
         self.assertEquals(fixtures.v13_metas, metas)
         self.assertEquals(fixtures.v13_rows, rows)
+
+    def test_read_v13_header(self):
+        header = {}
+
+        try:
+            tarantool17_snapshot.iter("testdata/v13/00000000000000010005.ok.snap", header=header)
+        except:
+            self.fail("Reading v13 snapshot header failed")
+
+        self.assertEquals(fixtures.v13_header, header)
 
     def test_bigsnap_v13(self):
         count = 0

@@ -14,11 +14,16 @@ import tarantool17_snapshot as tarantool_snapshot
 import msgpack
 
 count = 0
-for packed_meta, packed_row in tarantool_snapshot.iter("/snaps/00000000010388786179.snap"):
+header = {} # the header dict is optional
+ 
+for packed_meta, packed_row in tarantool_snapshot.iter("/snaps/00000000010388786179.snap", header = header):
   meta = msgpack.unpackb(packed_meta)
   row = msgpack.unpackb(packed_row)
   count += 1
-  
+
+  instance = header['Instance'] if 'Instance' in header else header['Server']
+  print("instance is %s" % instance)
+
   print("type is %s" % meta[0])
 
   if 3 in meta:
