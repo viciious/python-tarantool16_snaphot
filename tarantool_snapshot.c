@@ -233,22 +233,31 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObjec
         if (strcmp(buf, "\n") == 0)
             break;
 
-        if (header_dict == NULL)
-            continue;
-
         /* Parse the Key: Value pair */
 
         const char *key = buf;
         char *key_end = strchr(buf, ':');
-        if (key_end == NULL)
-            continue;
+        if (key_end == NULL) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "malformed header line");
+            goto error;
+        }
+
         *key_end = '\0';
 
         const char *val = key_end + 1;
         while (*val == ' ' || *val == '\t')
             val++;
+
         char *val_end = strchr(val, '\n');
+        if (val_end == NULL) {
+            snprintf(self->error_buf, sizeof(self->error_buf), "truncated header line");
+            goto error;
+        }
+
         *val_end = '\0';
+
+        if (header_dict == NULL)
+            continue;
 
         PyObject *pyval = PyString_FromString(val);
         PyDict_SetItemString(header_dict, key, pyval);
