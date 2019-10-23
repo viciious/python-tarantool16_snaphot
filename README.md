@@ -15,27 +15,30 @@ import msgpack
 
 count = 0
 header = {} # the header dict is optional
- 
-for packed_meta, packed_row in tarantool_snapshot.iter("/snaps/00000000010388786179.snap", header = header):
-  meta = msgpack.unpackb(packed_meta)
-  row = msgpack.unpackb(packed_row)
-  count += 1
 
-  instance = header['Instance'] if 'Instance' in header else header['Server']
-  print("instance is %s" % instance)
+try: 
+  for packed_meta, packed_row in tarantool_snapshot.iter("/snaps/00000000010388786179.snap", header = header):
+    meta = msgpack.unpackb(packed_meta)
+    row = msgpack.unpackb(packed_row)
+    count += 1
 
-  print("type is %s" % meta[0])
+    instance = header['Instance'] if 'Instance' in header else header['Server']
+    print("instance is %s" % instance)
 
-  if 3 in meta:
-    print("lsn is %s" % meta[3])
-  if 4 in meta:
-    print("timestamp is %s" % meta[4])
+    print("type is %s" % meta[0])
+
+    if 3 in meta:
+      print("lsn is %s" % meta[3])
+    if 4 in meta:
+      print("timestamp is %s" % meta[4])
     
-  if 16 in row:
-    print("space id is %s" % row[16])
-  if 33 in row:
-    print("tuple is %s" % row[33])
+    if 16 in row:
+      print("space id is %s" % row[16])
+    if 33 in row:
+      print("tuple is %s" % row[33])
 
-print count
+  print count
+except Exception as e:
+  print(repr(e))
 
 ```
