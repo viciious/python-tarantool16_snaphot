@@ -1,3 +1,4 @@
+# Importing required modules and libraries
 import os
 import sys
 import glob
@@ -6,6 +7,8 @@ from setuptools.command.bdist_rpm import bdist_rpm
 RPM_REQUIRED_DEPS = "python-msgpack"
 
 ## HACK FOR DEPS IN RPMS
+
+# Defining functions needed
 def custom_make_spec_file(self):
     spec = self._original_make_spec_file()
     lineDescription = "%description"
@@ -14,6 +17,7 @@ def custom_make_spec_file(self):
 bdist_rpm._original_make_spec_file = bdist_rpm._make_spec_file
 bdist_rpm._make_spec_file = custom_make_spec_file
 ## END OF HACK
+
 
 try:
     from setuptools import setup, Extension
@@ -29,6 +33,7 @@ def sh(command):
         raise ValueError("command failed: %s" % command)
     return ret
 
+# Directing paths and redirects
 sources = ["tarantool_snapshot.c"]
 include_dirs = []
 library_dirs = []
@@ -55,6 +60,7 @@ module1 = Extension('tarantool17_snapshot',
                     extra_link_args = extra_link_args,
                     extra_compile_args = extra_compile_args)
 
+# Code execution
 setup (name = 'python-tarantool17-snapshot',
     description = 'Tarantool 1.6+ snapshot reader',
     version='1.3',
