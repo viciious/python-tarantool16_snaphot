@@ -147,7 +147,7 @@ static PyTypeObject SnapshotIterator_Type = {
 
 static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObject *kw) {
     char filetype[32], version[32];
-    char buf[256];
+    char buf[1024];
     FILE *f = NULL;
     static const char v12[] = "0.12\n";
     static const char v13[] = "0.13\n";
