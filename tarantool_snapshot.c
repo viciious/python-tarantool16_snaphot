@@ -614,17 +614,6 @@ PyMODINIT_FUNC PyInit_tarantool17_snapshot(void) {
     return m;
 }
 
-int main(int argc, char **argv) {
-    wchar_t *program = Py_DecodeLocale(argv[0], NULL);
-    if (program == NULL) {
-        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
-    Py_SetProgramName(program);
-    Py_Initialize();
-    return 0;
-}
-
 #else
 
 // backward compatibility
@@ -647,13 +636,6 @@ PyMODINIT_FUNC inittarantool17_snapshot(void) {
     SnapshotError = PyErr_NewException((char *)"tarantool17_snapshot.SnapshotError", (PyObject *)NULL, (PyObject *)NULL);
     Py_INCREF(SnapshotError);
     PyModule_AddObject(m, "SnapshotError", SnapshotError);
-}
-
-int main(int argc, char **argv) {
-    Py_SetProgramName(argv[0]);
-    Py_Initialize();
-    inittarantool17_snapshot();
-    return 0;
 }
 
 #endif
