@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import platform
 from setuptools.command.bdist_rpm import bdist_rpm
 
 RPM_REQUIRED_DEPS = "python-msgpack"
@@ -55,7 +56,15 @@ module1 = Extension('tarantool17_snapshot',
                     extra_link_args = extra_link_args,
                     extra_compile_args = extra_compile_args)
 
-setup (name = 'python-tarantool17-snapshot',
+if platform.python_implementation() == "PyPy":
+    interpreter = "pypy"
+else:
+    interpreter = "python"
+
+if sys.version_info.major == 3:
+    interpreter += "3"
+
+setup (name = '%s-tarantool17-snapshot' % interpreter,
     description = 'Tarantool 1.6+ snapshot reader',
     version='1.4',
     author='Victor Luchits',
