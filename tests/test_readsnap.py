@@ -1,7 +1,10 @@
 import tarantool17_snapshot
 import msgpack
 from unittest import TestCase
-import tests.fixtures as fixtures
+try:
+    import fixtures
+except:
+    import tests.fixtures as fixtures
 
 class TestSnapshot(TestCase):
     def test_read_v12(self):
