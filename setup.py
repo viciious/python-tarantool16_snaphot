@@ -2,7 +2,7 @@ import os
 import sys
 import glob
 import platform
-from setuptools.command.bdist_rpm import bdist_rpm
+from distutils.command.bdist_rpm  import bdist_rpm
 
 RPM_REQUIRED_DEPS = "python-msgpack"
 
@@ -16,19 +16,10 @@ bdist_rpm._original_make_spec_file = bdist_rpm._make_spec_file
 bdist_rpm._make_spec_file = custom_make_spec_file
 ## END OF HACK
 
-try:
-    from setuptools import setup, Extension
-    extra_params = dict(test_suite = 'tests',)
-except ImportError:
-    from distutils.core import setup, Extension
-    extra_params = {}
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    import setuptools
 
-def sh(command):
-    import subprocess
-    ret = subprocess.call(command,shell=True)
-    if ret != 0:
-        raise ValueError("command failed: %s" % command)
-    return ret
+from distutils.core import setup, Extension
 
 sources = ["tarantool_snapshot.c"]
 include_dirs = []
@@ -64,12 +55,12 @@ else:
 if sys.version_info.major == 3:
     interpreter += "3"
 
-setup (name = '%s-tarantool17-snapshot' % interpreter,
+setup(name = '%s-tarantool17-snapshot' % interpreter,
     description = 'Tarantool 1.6+ snapshot reader',
     version='1.4',
     author='Victor Luchits',
     author_email='vluchits@gmail.com',
     url='https://github.com/viciious/python-tarantool16_snaphot',
     packages=[],
-    ext_modules = [module1], **extra_params)
+    ext_modules = [module1])
 
