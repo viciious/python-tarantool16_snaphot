@@ -2,19 +2,6 @@ import os
 import sys
 import glob
 import platform
-from distutils.command.bdist_rpm  import bdist_rpm
-
-RPM_REQUIRED_DEPS = "python-msgpack"
-
-## HACK FOR DEPS IN RPMS
-def custom_make_spec_file(self):
-    spec = self._original_make_spec_file()
-    lineDescription = "%description"
-    spec.insert(spec.index(lineDescription) - 1, "Requires: %s" % RPM_REQUIRED_DEPS)
-    return spec
-bdist_rpm._original_make_spec_file = bdist_rpm._make_spec_file
-bdist_rpm._make_spec_file = custom_make_spec_file
-## END OF HACK
 
 if len(sys.argv) > 1 and sys.argv[1] == 'test':
     import setuptools
