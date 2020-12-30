@@ -1,6 +1,6 @@
 # python-tarantool16_snapshot
 
-[![Build Status](https://travis-ci.org/viciious/python-tarantool16_snaphot.svg?branch=v13_snapshots)](https://travis-ci.org/viciious/python-tarantool16_snaphot)
+![Build](https://github.com/viciious/python-tarantool16_snaphot/workflows/Build/badge.svg)
 
 ## Description
 
