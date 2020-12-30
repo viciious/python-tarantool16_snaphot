@@ -16,7 +16,7 @@ git submodule update --init --recursive
 make install PYTHON=python3
 # or
 make bdist_rpm PYTHON=python3
-rpm -ivh dist/python3-tarantool17-snapshot-1.4-1.x86_64.rpm
+rpm -ivh dist/python3-tarantool17-snapshot-1.5-1.x86_64.rpm
 ```
 
 ## Usage
