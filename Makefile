@@ -10,7 +10,7 @@ bdist:
 	$(PYTHON) setup.py bdist
 
 bdist_rpm:
-	$(PYTHON) setup.py bdist_rpm
+	$(PYTHON) setup.py bdist_rpm --python=$(PYTHON)
 
 test:
 	$(PYTHON) setup.py test

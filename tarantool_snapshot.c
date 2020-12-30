@@ -43,6 +43,10 @@
 
 #define FADVD_WINDOW_SIZE ( 10 * 1024 * 1024 )
 
+#if PY_MAJOR_VERSION >= 3
+#define Py_TPFLAGS_HAVE_ITER 0
+#endif
+
 /*
  * marker is MsgPack fixext2
  * +--------+--------+--------+--------+
@@ -101,8 +105,7 @@ PyObject* SnapshotIterator_iter(SnapshotIterator *self);
 PyObject* SnapshotIterator_iternext(SnapshotIterator *self);
 
 static PyTypeObject SnapshotIterator_Type = {
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
+    PyVarObject_HEAD_INIT(NULL, 0)
     "tarantool17_snapshot.SnapshotIterator",      /*tp_name*/
     sizeof(SnapshotIterator),      /*tp_basicsize*/
     0,                         /*tp_itemsize*/
@@ -259,7 +262,7 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObjec
         if (header_dict == NULL)
             continue;
 
-        PyObject *pyval = PyString_FromString(val);
+        PyObject *pyval = PyUnicode_FromString(val);
         PyDict_SetItemString(header_dict, key, pyval);
         Py_DECREF(pyval);
     }
@@ -313,7 +316,12 @@ error:
 
     const char *row_end = *pos;
 
+#if PY_MAJOR_VERSION >= 3
+    *dest = Py_BuildValue("(y#,y#)", meta_pos,  meta_end - meta_pos, row_pos, row_end - row_pos);
+#else
+    // backward compatibility
     *dest = Py_BuildValue("(s#,s#)", meta_pos,  meta_end - meta_pos, row_pos, row_end - row_pos);
+#endif
 
     return 0;
 }
@@ -497,7 +505,7 @@ decompress_row:
                 snprintf(self->error_buf, sizeof(self->error_buf), "out of memory");
                 return -1;
             }
-            zstd->outbuf.dst = newdst; 
+            zstd->outbuf.dst = newdst;
         } while (1);
     }
 
@@ -574,6 +582,42 @@ static PyMethodDef TarantoolSnapshot_Module_Methods[] = {
     {NULL}  /* Sentinel */
 };
 
+#if PY_MAJOR_VERSION >= 3
+
+PyMODINIT_FUNC PyInit_tarantool17_snapshot(void) {
+    PyObject *m;
+
+    SnapshotIterator_Type.tp_new = PyType_GenericNew;
+    if (PyType_Ready(&SnapshotIterator_Type) < 0)  return NULL;
+
+    static struct PyModuleDef moduledef = {
+        PyModuleDef_HEAD_INIT,
+        "tarantool17_snapshot",
+        "tarantool 1.7 snapshot",
+        -1,
+        TarantoolSnapshot_Module_Methods,
+    };
+
+    m = PyModule_Create(&moduledef);
+
+    if (!m) {
+        return NULL;
+    }
+
+    Py_INCREF(&SnapshotIterator_Type);
+    PyModule_AddObject(m, "iter", (PyObject *)&SnapshotIterator_Type);
+
+    SnapshotError = PyErr_NewException((char *)"tarantool17_snapshot.SnapshotError", (PyObject *)NULL, (PyObject *)NULL);
+    Py_INCREF(SnapshotError);
+    PyModule_AddObject(m, "SnapshotError", SnapshotError);
+
+    return m;
+}
+
+#else
+
+// backward compatibility
+
 PyMODINIT_FUNC inittarantool17_snapshot(void) {
     PyObject *m;
 
@@ -581,6 +625,7 @@ PyMODINIT_FUNC inittarantool17_snapshot(void) {
     if (PyType_Ready(&SnapshotIterator_Type) < 0)  return;
 
     m = Py_InitModule("tarantool17_snapshot", TarantoolSnapshot_Module_Methods);
+
     if (!m) {
         return;
     }
@@ -590,12 +635,7 @@ PyMODINIT_FUNC inittarantool17_snapshot(void) {
 
     SnapshotError = PyErr_NewException((char *)"tarantool17_snapshot.SnapshotError", (PyObject *)NULL, (PyObject *)NULL);
     Py_INCREF(SnapshotError);
-    PyModule_AddObject(m, "SnapshotError", SnapshotError); 
+    PyModule_AddObject(m, "SnapshotError", SnapshotError);
 }
 
-int main(int argc, char **argv) {
-    Py_SetProgramName(argv[0]);
-    Py_Initialize();
-    inittarantool17_snapshot();
-    return 0;
-}
+#endif
