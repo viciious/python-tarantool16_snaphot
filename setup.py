@@ -44,7 +44,7 @@ if sys.version_info.major == 3:
 
 setup(name = '%s-tarantool17-snapshot' % interpreter,
     description = 'Tarantool 1.6+ snapshot reader',
-    version='1.5',
+    version='1.6',
     author='Victor Luchits',
     author_email='vluchits@gmail.com',
     url='https://github.com/viciious/python-tarantool16_snaphot',
