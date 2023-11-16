@@ -41,6 +41,7 @@
 #include <msgpuck.h>
 #include <zstd.h>
 
+#define SNAP_VBUF_SIZE ( 1024 * 1024 )
 #define FADVD_WINDOW_SIZE ( 10 * 1024 * 1024 )
 
 #if PY_MAJOR_VERSION >= 3
@@ -173,6 +174,11 @@ static int SnapshotIterator_init(SnapshotIterator *self, PyObject *args, PyObjec
 
     if ((f = fopen(self->filename, "rb")) == NULL) {
         snprintf(self->error_buf, sizeof(self->error_buf), "can't open for reading");
+        goto error;
+    }
+
+    if (setvbuf(f, NULL, _IOFBF, SNAP_VBUF_SIZE) != 0) {
+        snprintf(self->error_buf, sizeof(self->error_buf), "setvbuf failed");
         goto error;
     }
 
@@ -639,3 +645,4 @@ PyMODINIT_FUNC inittarantool17_snapshot(void) {
 }
 
 #endif
+
